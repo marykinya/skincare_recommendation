@@ -39,48 +39,54 @@ Data is scraped from **Lookfantastic** and stored in `skincare_products_2026.csv
 
 ## How It Works
 
-### 1. Data Loading (`load_data`)
+When you select a product, every other product of the same category is scored against your selection using a weighted combination of three signals. Here's a deep dive into each one.
 
-- Reads `skincare_products_2026.csv` into a pandas DataFrame.
-- Filters rows to keep only products where `available == True`.
-- Parses the `ingredients` column from its string-encoded list format into a Python list.
-- Derives `display_price` from `updated_price`, falling back to `price` if `updated_price` is missing.
-- Replaces blank or null `product_image_url` values with a placeholder image URL.
-- Results are cached with `@st.cache_data` to avoid reloading on each interaction.
+### 🧪 Ingredient Match (75%)
 
-### 2. Position-Weighted Ingredient Strings (`_weighted_ingredient_str`)
+This is the heart of the engine. Skincare products list their ingredients in **descending order of concentration** — the first ingredient makes up the largest share of the formula, the last the smallest. The recommender takes full advantage of this structure.
 
-Ingredients on a cosmetic label are listed in descending order of concentration. To reflect this, each ingredient is repeated in the string passed to TF-IDF according to its position:
+**How it works:**
+- Each ingredient is assigned a **positional weight**: ingredients near the top of the list carry much more influence than those near the bottom.
+- The app then computes a **weighted cosine similarity** between two ingredient lists, meaning products that share the same key actives *and* the same base ingredients will score highly together.
+- Rare or specialty ingredients (e.g. niacinamide, retinol, peptides) that appear near the top are treated as strong signals of formulation intent and boost similarity more than common fillers like water or glycerin.
 
-- 1st ingredient → repeated 5 times
-- 2nd ingredient → repeated 4 times
-- …
-- 6th and beyond → appear once
+**Why it matters:**
+Two moisturisers might both be called "hydrating" on their labels, but one might be built around hyaluronic acid while the other leans on shea butter. Ingredient matching surfaces the one that is chemically closest to what you already like.
 
-This ensures that key actives and base ingredients at the top of the list contribute more to the similarity score than trace ingredients near the bottom.
+### 💰 Price (15%)
 
-### 3. Composite Similarity Score (`calculate_cosine_similarity`)
+Once ingredient similarity is established, price acts as a **tiebreaker and alternative-finder**.
 
-For a selected product at `product_index` within the type-filtered DataFrame:
+**How it works:**
+- The absolute price difference between your chosen product and every candidate is calculated and normalised across the full price range in the dataset.
+- A candidate that costs nearly the same scores close to 1.0 on this signal; one that is drastically cheaper or more expensive scores lower.
+- The 15% weight means price can meaningfully separate two otherwise identical formulas, but it cannot rescue a product with poor ingredient overlap.
 
-1. **Ingredient similarity** — TF-IDF vectors are built from weighted ingredient strings; cosine similarity is computed between the selected product and every other product.
-2. **Price proximity** — `1 - |price_selected - price_candidate| / price_range`, clipped to `[0, 1]`. Defaults to `0.5` if price is unavailable.
-3. **Rating proximity** — `1 - |rating_selected - rating_candidate| / 5.0`, clipped to `[0, 1]`. Defaults to `0.5` if rating is unavailable.
-4. **Final score** — `0.75 × ingredient_sim + 0.15 × price_proximity + 0.10 × rating_proximity`
+**Why it matters:**
+This signal powers the "dupe" use case. If you love a luxury serum but want a budget alternative, the recommender will surface the closest-matching formula at the lowest price difference — not just the cheapest product in the category.
 
-Candidates are ranked by final score (descending). A candidate is only included if:
-- It is not the selected product itself.
-- Its raw ingredient similarity ≥ `0.1` (the `similarity_threshold`).
+### ⭐ Rating (10%)
 
-Up to `top_n=5` products are returned.
+A light quality signal drawn from aggregated customer reviews.
 
-### 4. Streamlit Interface (`main`)
+**How it works:**
+- Ratings are normalised to a 0–1 scale across the dataset.
+- Products with a rating close to your chosen product's rating receive a small boost; a highly-rated recommendation is preferred over a poorly-rated one when everything else is equal.
+- The 10% weight keeps this signal advisory rather than dominant — a 5-star product with unrelated ingredients will never outrank a 3-star product with an almost identical formula.
 
-- **Product type selector** — dropdown populated with all unique `product_type` values.
-- **Product selector** — dropdown filtered to products of the chosen type.
-- **Preview pane** — shows the selected product's image, rating, and price alongside the selectors.
-- **Recommendations grid** — automatically computed and rendered in a 3-column card layout whenever the selection changes. No manual submission step is required.
-- If no products meet the similarity threshold, an info message is shown instead.
+**Why it matters:**
+Real-world performance data from thousands of reviewers can catch things ingredient lists can't: texture, scent, packaging, and skin-feel. The rating nudge helps surface products that work well in practice, not just on paper.
+
+### 🔬 The Similarity Threshold
+
+Not every product makes it into your results. A candidate must clear a **minimum ingredient similarity score** to appear at all. This threshold filters out products that are categorically different in formulation, so price and rating alone can never surface an unrelated result.
+
+Products that pass the threshold are then ranked by their combined weighted score (ingredient × 0.75 + price × 0.15 + rating × 0.10) and the top matches are displayed.
+
+### 📊 About the Data
+
+- The product catalogue was initially sourced from a publicly available skincare dataset on [Kaggle](https://www.kaggle.com) and includes ingredients, prices, and ratings across moisturisers, serums, cleansers, sunscreens, toners, eye creams, and more.
+- The dataset has been periodically refreshed/scraped from [lookfantastic.com](https://www.lookfantastic.com) to reflect current product availability.
 
 ## Project Structure
 
