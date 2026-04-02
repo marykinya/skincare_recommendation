@@ -162,7 +162,7 @@ def inject_custom_css():
 # Data
 @st.cache_data
 def load_data():
-    df = pd.read_csv('skincare_products_2026.csv')
+    df = pd.read_csv('data/skincare_products_2026.csv')
     if 'available' in df.columns:
         df = df[df['available'].astype(str).str.lower() == 'true'].copy()
     df['ingredients'] = df['ingredients'].apply(
