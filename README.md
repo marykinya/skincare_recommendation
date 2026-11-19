@@ -47,29 +47,32 @@ score = 0.75 × ingredient match + 0.15 × price + 0.10 × rating
 
 ## Evaluation
 
-The full analysis is in [`notebooks/evaluation.ipynb`](notebooks/evaluation.ipynb). It tests the model three ways against a random baseline.
+The full analysis is in [`notebooks/evaluation.ipynb`](notebooks/evaluation.ipynb). It runs on the full catalogue of 4,165 products and tests the model three ways against a random baseline.
 
-**1. Size variants.** A product sold in two sizes has the same formula. The model finds the other size as its top match for 94% of products. Random picks would manage 2%.
+**1. Size variants.** A product sold in two sizes has the same formula. The model finds the other size as its top match for 85% of products. Random picks would manage under 1%. Most misses are scent variants of one base formula, such as Rituals or Jo Malone ranges, which really are near-identical.
 
 ![Size variant retrieval](docs/evaluation_size_variants.png)
 
-**2. Published dupes.** Five pairs from beauty editors and dupe finder sites exist in this catalogue. The known alternative has a median rank of 5 out of 98 products. Random picks would give 50. Three of the five appear in the app's top five.
+**2. Published dupes.** Five pairs from beauty editors and dupe finder sites are in the catalogue. The known alternative has a median rank of 31 among 500 to 900 products of its type. Random picks would give about 340. Three of the five are in the top 10%.
 
-| Model | Median rank | Pairs in the top 5 |
+| Pair | Products of that type | Rank |
 |---|---|---|
-| Random | 50 | 0 |
-| Original | 11 | 2 |
-| Current without families | 7 | 2 |
-| Current | 5 | 3 |
+| Elemis Pro-Collagen Balm → Emma Hardie Moringa Balm | 492 | 6 |
+| Estée Lauder Advanced Night Repair → Lancôme Génifique | 687 | 13 |
+| First Aid Beauty Ultra Repair → CeraVe Moisturising Cream | 916 | 31 |
+| Elemis Pro-Collagen Balm → Clinique Take The Day Off | 492 | 73 |
+| Vichy Minéral 89 → The Ordinary Hyaluronic Acid | 687 | 595 |
+
+The last pair does the same job with a different formula. Ingredient matching cannot see that link. Product claims as an extra signal are on the roadmap.
 
 **3. Catalogue behaviour.**
 
 | Check | Result |
 |---|---|
-| Products with at least one cheaper alternative | 90% |
-| Median saving in dupe mode | 48% |
-| Results that are another size of the same product | 0% (was 2.5%) |
-| Results from the same brand | 21% (3.8% if random) |
+| Products with at least one cheaper alternative | 92% |
+| Median saving in dupe mode | 50% |
+| Results that are another size of the same product | 0% (was 3.3%) |
+| Results from the same brand | 27% (1.6% if random) |
 
 Same-brand results are common because brands reuse base formulas across their ranges. The "Exclude the same brand" toggle covers this.
 
@@ -98,7 +101,18 @@ existing catalogue ──► re-check products ──┘
 | No products were lost | The catalogue has fewer rows than before |
 | Most pages loaded | More than 20% of requests failed, for example if the site blocks the scraper |
 
-Warnings cover short ingredient lists, missing brands and products still using 2021 ingredients.
+Warnings cover short ingredient lists, missing brands, prices that change more than 3x and products still using 2021 ingredients.
+
+**Cleaning built into the pipeline.**
+
+- Pages are read as UTF-8, so names such as "Estée Lauder" keep their accents.
+- Ingredient lists are tidied. Numbered chemicals such as "1,2-hexanediol" stay whole, label codes and footnotes are removed and lists separated by full stops are split.
+- Brands come from the page or are matched from the start of the product name using [`data/brands.csv`](data/brands.csv).
+- Gift sets, advent calendars and mixed bundles are flagged with `is_bundle` and hidden in the app. They have no single formula to match.
+- A discontinued product's old link can redirect to a category page. Those products are marked unavailable rather than renamed.
+- Products that move to a new Lookfantastic ID are followed instead of being added twice.
+
+[`pipeline/repair.py`](pipeline/repair.py) applies the same cleaning to a saved catalogue without scraping again.
 
 **Schedule.** [`.github/workflows/refresh-data.yml`](.github/workflows/refresh-data.yml) runs the pipeline every Monday. It runs the tests on the new data and commits the updated catalogue and report. It can also be started by hand from the Actions tab. A second workflow runs the tests on every push.
 
@@ -108,18 +122,22 @@ Warnings cover short ingredient lists, missing brands and products still using 2
 pip install -r requirements-pipeline.txt
 python -m pipeline.run --limit 20 --no-discover   # quick test on 20 products
 python -m pipeline.run                            # full refresh
+python -m pipeline.repair                         # re-clean the saved catalogue, no scraping
 ```
 
 ## Data
 
-The catalogue started from a 2021 [Kaggle](https://www.kaggle.com) dataset of [Lookfantastic](https://www.lookfantastic.com) skincare products. In 2026 it was refreshed with current prices, ratings, images and availability. The pipeline now replaces the 2021 ingredient lists with current ones and adds new products.
+The catalogue started from a 2021 [Kaggle](https://www.kaggle.com) dataset of 1,138 [Lookfantastic](https://www.lookfantastic.com) skincare products. The first full pipeline run in November 2026 grew it to 4,799 products and replaced the 2021 ingredient lists with current ones.
 
 | | |
 |---|---|
-| Products | 1,138 |
-| Available (shown in the app) | 1,032 |
-| Product types | 14 (Mask, Body Wash, Moisturiser, Cleanser, Serum and more) |
-| Average ingredients per product | 24 |
+| Products in the catalogue | 4,799 |
+| Shown in the app (available, not gift sets) | 4,165 |
+| Gift sets and bundles (hidden) | 447 |
+| Brands | 266 |
+| Product types | 14 (Moisturiser, Serum, Cleanser, Body Wash, Mask and more) |
+| Median ingredients per product | 29 |
+| Ingredient lists from the 2026 scrape | 97% |
 
 **File:** `data/skincare_products.csv`
 
@@ -140,6 +158,7 @@ The catalogue started from a 2021 [Kaggle](https://www.kaggle.com) dataset of [L
 | `product_image_url` | Product image |
 | `available` | Whether the product page still exists |
 | `in_stock` | Whether the product was in stock at the last check |
+| `is_bundle` | Gift sets and bundles, hidden in the app |
 | `first_seen` / `last_checked` | When the product was added and last checked |
 
 `data/skincare_products_2021.csv` and `data/skincare_products_2026.csv` are kept as history. [`notebooks/Skincare.ipynb`](notebooks/Skincare.ipynb) is the original 2026 refresh.
@@ -156,11 +175,14 @@ skincare_recommendation/
 │   ├── scrape.py                      # Polite fetching and product discovery
 │   ├── merge.py                       # Combine scraped data with the catalogue
 │   ├── checks.py                      # Data quality checks and report
+│   ├── brands.py                      # Brand lookup from product names
 │   ├── run.py                         # Command line entry point
+│   ├── repair.py                      # Re-clean the saved catalogue without scraping
 │   └── bootstrap.py                   # One-off conversion of the 2026 data
 ├── data/
 │   ├── skincare_products.csv          # Catalogue used by the app
 │   ├── quality_report.md              # Latest data quality report
+│   ├── brands.csv                     # Known brands and the short names products use
 │   ├── skincare_products_2026.csv     # 2026 refresh (history)
 │   ├── skincare_products_2021.csv     # Original Kaggle dataset (history)
 │   └── corrected_brands_dictionary.csv
@@ -176,6 +198,7 @@ skincare_recommendation/
 ├── .github/workflows/
 │   ├── refresh-data.yml               # Weekly data refresh
 │   └── tests.yml                      # Tests on every push
+├── .streamlit/config.toml             # Light theme for the app
 ├── requirements.txt                   # App dependencies
 └── requirements-pipeline.txt          # Pipeline and test dependencies
 ```
@@ -183,6 +206,8 @@ skincare_recommendation/
 ## Run the app locally
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 streamlit run recommender.py
 ```
@@ -196,7 +221,8 @@ pytest
 
 ## Roadmap
 
-- Run the pipeline on current products and test more published dupe pairs
+- Test more published dupe pairs now that the catalogue holds current products
+- Test a blend of whole-name and word-level ingredient matching on that larger set
 - Extend the ingredient families, for example sunscreen filters and plant oils
 - Add product claims such as hydrating or exfoliating as an extra signal
 - Let users tune the signal weights in the app

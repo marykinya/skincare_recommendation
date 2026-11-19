@@ -3,6 +3,7 @@ import html
 import re
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 import validators
@@ -18,157 +19,158 @@ PLACEHOLDER_IMAGE_URL = 'https://placehold.co/300x300/f9fafb/6b7280?text=No+imag
 def inject_custom_css():
     st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap');
 
-    .stApp { background-color: #ffffff; }
-
-    html, body, [class*="css"] {
-        font-family: 'Figtree', sans-serif;
-        font-weight: 300;
-        color: #000014;
+    :root {
+        --ink: #111827;      /* headings and key text */
+        --body: #1f2937;     /* body text */
+        --muted: #4b5563;    /* secondary text, still 7:1 on white */
+        --line: #e5e7eb;
+        --soft: #f4f4f5;
     }
 
-    p, li, span, div {
-        font-weight: 300;
+    .stApp { background-color: #ffffff; color: var(--body); }
+
+    html, body, [class*="css"], .stMarkdown, .stMarkdown p, .stMarkdown li {
+        font-family: 'Figtree', sans-serif;
+        font-weight: 400;
+        font-size: 1rem;
+        line-height: 1.65;
+        color: var(--body);
     }
 
     h1 {
         font-family: 'Figtree', sans-serif !important;
-        font-weight: 300 !important;
-        font-size: 2rem !important;
-        color: #000014 !important;
+        font-weight: 600 !important;
+        font-size: 2.1rem !important;
+        color: var(--ink) !important;
         letter-spacing: -0.01em;
         line-height: 1.2;
     }
     h2, h3 {
         font-family: 'Figtree', sans-serif !important;
-        font-weight: 300 !important;
-        color: #000014 !important;
+        font-weight: 600 !important;
+        color: var(--ink) !important;
     }
 
     /* Labels above dropdowns */
-    label {
-        font-size: 0.75rem !important;
-        letter-spacing: 0.05em !important;
+    .stSelectbox label p {
+        font-size: 0.85rem !important;
+        letter-spacing: 0.04em !important;
         text-transform: uppercase !important;
-        color: #6b7280 !important;
-        font-weight: 400 !important;
+        color: var(--muted) !important;
+        font-weight: 600 !important;
     }
 
-    /* Buttons */
-    .stButton > button {
-        background-color: #000014;
-        color: #ffffff;
-        border: none;
-        border-radius: 0;
-        padding: 0.75rem 2rem;
-        font-family: 'Figtree', sans-serif;
-        font-size: 0.75rem;
-        font-weight: 400;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        width: 100%;
-        transition: background-color 0.2s ease-in-out;
-    }
-    .stButton > button:hover {
-        background-color: #374151;
-        color: #ffffff;
+    /* Toggle labels: normal sentence case so they read easily */
+    .stToggle label p, [data-testid="stWidgetLabel"] p {
+        font-size: 0.95rem !important;
+        color: var(--body) !important;
+        font-weight: 500 !important;
+        text-transform: none !important;
+        letter-spacing: 0 !important;
     }
 
-    hr { border: none; border-top: 1px solid #e5e7eb; margin: 1.5rem 0; }
+    /* Captions, such as the rating and price under the selected product */
+    [data-testid="stCaptionContainer"], .stCaption, small {
+        color: var(--muted) !important;
+        font-size: 0.95rem !important;
+    }
+
+    hr { border: none; border-top: 1px solid var(--line); margin: 1.5rem 0; }
 
     /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
         gap: 0;
-        border-bottom: 1px solid #e5e7eb;
+        border-bottom: 1px solid var(--line);
         background: transparent;
     }
     .stTabs [data-baseweb="tab"] {
         font-family: 'Figtree', sans-serif !important;
-        font-size: 0.875rem !important;
-        font-weight: 300 !important;
-        letter-spacing: 0.01em !important;
-        color: #6b7280 !important;
+        font-size: 1rem !important;
+        font-weight: 500 !important;
+        color: var(--muted) !important;
         padding: 0.75rem 1.25rem !important;
         border-bottom: 2px solid transparent !important;
         background: transparent !important;
     }
     .stTabs [aria-selected="true"] {
-        color: #000014 !important;
-        border-bottom: 2px solid #000014 !important;
-        font-weight: 400 !important;
+        color: var(--ink) !important;
+        border-bottom: 2px solid var(--ink) !important;
+        font-weight: 600 !important;
     }
+
+    /* Explainer tab: comfortable reading width */
+    .stTabs [data-baseweb="tab-panel"] .stMarkdown { max-width: 52rem; }
+    .stTabs [data-baseweb="tab-panel"] h2 { font-size: 1.6rem !important; margin-top: 0.5rem; }
+    .stTabs [data-baseweb="tab-panel"] h3 { font-size: 1.2rem !important; margin-top: 1.25rem; }
 
     /* Product card */
     .product-card {
         background: #ffffff;
-        border-radius: 0;
+        border-radius: 8px;
         padding: 1rem;
         margin-bottom: 1rem;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--line);
         transition: box-shadow 0.2s ease-in-out;
         height: 100%;
     }
-    .product-card:hover {
-        box-shadow: 0 4px 16px rgba(0, 0, 20, 0.1);
-    }
+    .product-card:hover { box-shadow: 0 4px 16px rgba(17, 24, 39, 0.08); }
     .product-card img {
         width: 100%;
-        max-height: 180px;
+        height: 180px;
         object-fit: contain;
         margin-bottom: 0.75rem;
-        background: #f9fafb;
+        background: #ffffff;
     }
     .product-brand {
-        font-size: 0.7rem;
-        letter-spacing: 0.05em;
+        font-size: 0.8rem;
+        letter-spacing: 0.04em;
         text-transform: uppercase;
-        color: #6b7280;
+        color: var(--muted);
         margin: 0 0 0.3rem;
-        font-weight: 300;
+        font-weight: 600;
     }
     .product-title a {
         font-family: 'Figtree', sans-serif;
-        font-size: 0.875rem;
-        font-weight: 300;
-        color: #000014;
+        font-size: 1rem;
+        font-weight: 500;
+        color: var(--ink);
         text-decoration: none;
-        line-height: 1.4;
+        line-height: 1.45;
     }
-    .product-title a:hover { color: #4b5563; text-decoration: underline; }
+    .product-title a:hover { text-decoration: underline; }
+    .product-match {
+        font-size: 0.9rem;
+        color: #065f46;
+        margin: 0.5rem 0 0;
+        font-weight: 600;
+    }
     .product-meta {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-top: 0.75rem;
         padding-top: 0.75rem;
-        border-top: 1px solid #e5e7eb;
-        font-size: 0.8rem;
-        font-weight: 300;
-        color: #6b7280;
+        border-top: 1px solid var(--line);
+        font-size: 0.95rem;
+        color: var(--muted);
     }
     .product-price {
         font-family: 'Figtree', sans-serif;
-        font-size: 0.95rem;
-        font-weight: 300;
-        color: #000014;
-    }
-
-    .product-match {
-        font-size: 0.75rem;
-        color: #6b7280;
-        margin: 0.4rem 0 0;
-        font-weight: 300;
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: var(--ink);
     }
 
     /* Eyebrow label */
     .eyebrow {
-        font-size: 0.7rem;
+        font-size: 0.8rem;
         letter-spacing: 0.05em;
         text-transform: uppercase;
-        color: #6b7280;
+        color: var(--muted);
         margin-bottom: 0.25rem;
-        font-weight: 300;
+        font-weight: 600;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -191,6 +193,8 @@ def load_data(path=DATA_PATH):
     df = pd.read_csv(path)
     if 'available' in df.columns:
         df = df[df['available'].astype(str).str.lower() == 'true'].copy()
+    if 'is_bundle' in df.columns:
+        df = df[df['is_bundle'].astype(str).str.lower() != 'true'].copy()  # gift sets have no single formula
     df['ingredients'] = df['ingredients'].apply(parse_ingredients)
     if 'updated_price' in df.columns:
         df['display_price'] = df['updated_price'].fillna(df['price'])
@@ -235,11 +239,21 @@ def _identity(tokens):
 WEIGHTS = {'ingredients': 0.75, 'price': 0.15, 'rating': 0.10}
 
 
-def ingredient_similarity(df, product_index, use_families=True):
-    vectors = TfidfVectorizer(analyzer=_identity).fit_transform(
+def ingredient_vectors(df, use_families=True):
+    return TfidfVectorizer(analyzer=_identity).fit_transform(
         df['ingredients'].apply(ingredient_tokens, use_families=use_families)
     )
+
+
+def ingredient_similarity(df, product_index, use_families=True):
+    vectors = ingredient_vectors(df, use_families)
     return cosine_similarity(vectors[product_index], vectors).flatten()
+
+
+def similarity_matrix(df, use_families=True):
+    """Ingredient similarity between every pair of products in df. Useful for evaluation."""
+    vectors = ingredient_vectors(df, use_families)
+    return cosine_similarity(vectors)
 
 
 def price_scores(prices, sel_price, cheaper_only=False):
@@ -263,14 +277,16 @@ def rating_scores(ratings):
 
 
 def recommend(df, product_index, top_n=5, similarity_threshold=0.1,
-              cheaper_only=False, exclude_same_brand=False, weights=WEIGHTS):
+              cheaper_only=False, exclude_same_brand=False, weights=WEIGHTS, ingr_sim=None):
     """Return the top products most similar to df.iloc[product_index].
 
     df should already be filtered to one product type.
     """
     df = df.reset_index(drop=True)
 
-    ingr_sim = ingredient_similarity(df, product_index)
+    if ingr_sim is None:
+        ingr_sim = ingredient_similarity(df, product_index)
+    ingr_sim = np.asarray(ingr_sim)
     prices = pd.to_numeric(df['display_price'], errors='coerce')
     sel_price = prices.iloc[product_index]
     price_score = price_scores(prices, sel_price, cheaper_only)
@@ -391,7 +407,7 @@ def display_header():
     st.markdown('<p class="eyebrow">Lookfantastic · Skincare</p>', unsafe_allow_html=True)
     st.title("Skincare Recommendations")
     st.markdown("""
-    <p style="font-size:0.95rem; color:#4b5563; line-height:1.6; margin-top:-0.5rem;">
+    <p style="font-size:1.05rem; color:#374151; line-height:1.6; margin-top:-0.5rem;">
     Discover similar skincare products based on what they are made of. Find an alternative, a budget swap or simply something new to try.
     </p>
     """, unsafe_allow_html=True)

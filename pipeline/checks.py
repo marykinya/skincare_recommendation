@@ -78,8 +78,9 @@ def run_checks(new, old=None, attempted=0, failed=0):
             f'{len(jumps)} prices changed more than 3x' + (f' (e.g. {examples})' if examples else ''), 'warning')
     short = ((counts > 0) & (counts < 3)).sum()
     add('Ingredient lists look complete', short == 0, f'{short} lists with fewer than 3 items', 'warning')
-    no_brand = available['brand'].isna().mean() if len(available) else 0
-    add('Brands are filled in', no_brand < 0.05, f'{no_brand:.1%} of available products have no brand', 'warning')
+    singles = available[~available['is_bundle'].astype(str).str.lower().eq('true')]
+    no_brand = singles['brand'].isna().mean() if len(singles) else 0
+    add('Brands are filled in', no_brand < 0.05, f'{no_brand:.1%} of available products (not counting gift sets) have no brand', 'warning')
     old_source = (available['ingredients_source'] != 'lookfantastic').mean() if len(available) else 0
     add('Ingredients come from one source', old_source == 0,
         f'{old_source:.1%} of available products still use 2021 Kaggle ingredients', 'warning')

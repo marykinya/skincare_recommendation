@@ -11,7 +11,9 @@ INGREDIENT_LABEL = re.compile(r'^\s*(?:full\s+)?ingredients?(?:\s+list)?\s*:?\s*
 SECTION_LABELS = re.compile(
     r'^\s*(how to use|description|ingredient benefits|key ingredients|delivery|reviews?|'
     r'product details|brand|range|volume|size)\s*:?\s*$', re.I)
-FIL_CODE = re.compile(r'\(?\s*code\s*f\.?\s*i\.?\s*l\.?[^)]*\)?', re.I)
+FIL_CODE = re.compile(r'\(?\s*code\s*:?\s*f\.?\s*i\.?\s*l\.?[^)]*\)?', re.I)
+SYMBOLS = re.compile(r'[®™©¹²³⁴⁵⁶⁷⁸⁹⁰ⁿ*†‡◊•]')
+FOOTNOTE_ITEM = re.compile(r'^\(?\s*[\d*†‡]?\s*\)?\s*(naturally occurring|certified organic|from organic|organic|natural origin|of natural origin)', re.I)
 DISCLAIMER = re.compile(r'(please note|ingredients? (?:are|may be) subject to change|'
                         r'refer to the packaging|for the most up to date).*$', re.I)
 
@@ -39,29 +41,78 @@ def page_count(html):
     return int(match.group(1)) if match else 1
 
 
+_CP1252_EXTRA = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ'
+_MOJIBAKE = re.compile(r'[\u00c2-\u00f4][\u0080-\u00bf' + _CP1252_EXTRA + r']{1,3}')
+
+
+def _decode_run(run):
+    for enc in ('cp1252', 'latin-1'):
+        try:
+            return run.encode(enc).decode('utf-8')
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
+    return run
+
+
+def fix_mojibake(text):
+    """Repair UTF-8 text that was read as Latin-1, e.g. 'EstÃ©e' to 'Estée'.
+
+    Works piece by piece, so one odd character does not stop the rest being fixed.
+    Also handles text that was lowercased after the damage ('estã©e').
+    """
+    if not isinstance(text, str) or not re.search(r'[\u00c2-\u00f4][\u0080-\u00bf' + _CP1252_EXTRA + ']', text):
+        return text
+    lowered = text == text.lower()
+    candidate = text
+    if lowered:
+        # Lowercasing turned the lead byte Ã into ã and Â into â. Undo that first.
+        candidate = re.sub(r'ã(?=[\u0080-\u00bf' + _CP1252_EXTRA + '])', 'Ã', candidate)
+        candidate = re.sub(r'â(?=[®©°±²³¹º·¼½¾\u00ad¬])', 'Â', candidate)
+    fixed = _MOJIBAKE.sub(lambda m: _decode_run(m.group(0)), candidate)
+    return fixed.lower() if lowered else fixed
+
+
+def clean_ingredient_list(items):
+    """Tidy a list of ingredient names. Safe to run more than once."""
+    out = []
+    for item in items:
+        item = fix_mojibake(str(item)).replace('\u00ad', '')  # soft hyphens
+        item = FIL_CODE.sub('', item)
+        item = DISCLAIMER.sub('', item)
+        item = re.sub(r'\.\s*\*.*$', '', item)  # footnotes such as ". *from organic farming"
+        item = SYMBOLS.sub('', item)
+        # Some brands separate ingredients with full stops instead of commas
+        parts = re.split(r'\.\s+(?=[a-z(])', item, flags=re.I) if re.search(r'\.\s+[a-z(]', item, re.I) else [item]
+        for part in parts:
+            part = re.sub(r'\s+', ' ', part).strip(' .;:\n\t').lower()
+            if not part or len(part) > 120 or FOOTNOTE_ITEM.match(part):
+                continue
+            # "1,2-hexanediol" split at its comma: glue the number back on
+            if out and re.fullmatch(r'\d+', out[-1]) and re.match(r'\d', part):
+                out[-1] = f'{out[-1]},{part}'
+                continue
+            out.append(part)
+    return out
+
+
 def split_ingredients(text):
-    """Split an INCI list on commas that are not inside brackets."""
+    """Split an INCI list on commas that are not inside brackets or between digits."""
     text = FIL_CODE.sub('', text)
     text = DISCLAIMER.sub('', text)
     items, depth, current = [], 0, []
-    for ch in text:
+    for k, ch in enumerate(text):
         if ch in '([':
             depth += 1
         elif ch in ')]':
             depth = max(0, depth - 1)
-        if ch in ',•;' and depth == 0:
+        between_digits = ch == ',' and 0 < k < len(text) - 1 and text[k - 1].isdigit() and text[k + 1].isdigit()
+        if ch in ',•;' and depth == 0 and not between_digits:
             items.append(''.join(current))
             current = []
         else:
             current.append(ch)
     items.append(''.join(current))
-    cleaned = []
-    for item in items:
-        item = re.sub(r'\.\s*\*.*$', '', item)  # footnotes such as ". *from organic farming"
-        item = re.sub(r'\s+', ' ', item).strip(' .*\n\t')
-        if item and len(item) <= 120:
-            cleaned.append(item.lower())
-    return cleaned
+    return clean_ingredient_list(items)
 
 
 def _json_ld_product(soup):
@@ -147,3 +198,29 @@ def parse_product_page(html):
         'canonical_url': canonical.get('href') if canonical else None,
         'ingredients': split_ingredients(_ingredients_text(soup)),
     }
+
+
+BUNDLE = re.compile(
+    r'advent|beauty box|subscription|\bbundle\b|voucher|discovery|\btrio\b|\bgift\b|'
+    r'\bset\b|\bkit\b|\bedit\b|\bvault\b|\broutine\b|\(worth', re.I)
+MIXED_DUO = re.compile(r'\bduo\b', re.I)
+
+
+def is_bundle(name):
+    """True for gift boxes, sets and mixed bundles, which have no single formula.
+
+    A duo of one product ("Skin Food 75ml Duo") is kept. A duo of two products
+    ("Cleanser and Rescue Mask Duo") is a bundle.
+    """
+    name = str(name)
+    if BUNDLE.search(name):
+        # "(Worth £108)" alone on a single product with a size is a value pack, not a set
+        if re.search(r'\(worth', name, re.I) and not re.search(
+                r'advent|box|bundle|set|kit|edit|vault|collection|duo|trio|\+|&|\band\b', name, re.I):
+            return False
+        return True
+    if MIXED_DUO.search(name):
+        # Two different products, or a duo with no size (a pairing of two products)
+        has_size = re.search(r'\d+(?:\.\d+)?\s?(?:ml|g)\b', name, re.I)
+        return bool(re.search(r'\+|&|\band\b', name, re.I) or not has_size)
+    return False

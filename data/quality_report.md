@@ -1,11 +1,9 @@
 # Data quality report
 
 - Run date: 2026-11-19
-- Products in catalogue: 1138
-- Available products: 1032
-- New products added: 0
-- Pages visited: 20
-- Failed requests: 0
+- Step: repair (no scraping)
+- Products in catalogue: 4799
+- Available products: 4611
 
 | Check | Result | Detail |
 |---|---|---|
@@ -19,8 +17,8 @@
 | Prices are between £0 and £1,000 | Pass | 0 out of range |
 | Ratings are between 0 and 5 | Pass | 0 out of range |
 | Available products have ingredients | Pass | 100.0% have ingredients (minimum 90%) |
-| No products were lost | Pass | 1138 before, 1138 after |
-| Most pages loaded | Pass | 0 of 20 requests failed (0%) |
-| Ingredient lists look complete | Warning | 23 lists with fewer than 3 items |
-| Brands are filled in | Warning | 5.3% of available products have no brand |
-| Ingredients come from one source | Warning | 98.4% of available products still use 2021 Kaggle ingredients |
+| No products were lost | Pass | 4799 before, 4799 after |
+| Prices did not jump | Pass | 0 prices changed more than 3x |
+| Ingredient lists look complete | Warning | 41 lists with fewer than 3 items |
+| Brands are filled in | Pass | 1.0% of available products (not counting gift sets) have no brand |
+| Ingredients come from one source | Warning | 2.6% of available products still use 2021 Kaggle ingredients |

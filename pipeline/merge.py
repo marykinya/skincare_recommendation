@@ -1,14 +1,15 @@
 """Combine freshly scraped results with the existing catalogue."""
 from datetime import date
 
-from pipeline.parse import product_id_from_url
+from pipeline.brands import infer_brand
+from pipeline.parse import fix_mojibake, is_bundle, product_id_from_url
 
 import pandas as pd
 
 COLUMNS = [
     'product_id', 'product_name', 'product_url', 'product_type', 'brand', 'ingredients',
     'ingredients_source', 'price', 'updated_price', 'price_change', 'product_rating',
-    'review_count', 'product_image_url', 'available', 'in_stock', 'first_seen', 'last_checked',
+    'review_count', 'product_image_url', 'available', 'in_stock', 'is_bundle', 'first_seen', 'last_checked',
 ]
 
 
@@ -45,6 +46,12 @@ def apply_results(catalogue, results, today=None):
         if status != 200:
             continue
 
+        # A discontinued product's old link can redirect to a category page. Treat it as gone.
+        canonical = fields.get('canonical_url') or ''
+        if '/c/' in canonical and '/p/' not in canonical:
+            cat.loc[rows, ['available', 'last_checked']] = [False, today]
+            continue
+
         # Lookfantastic sometimes moves a product to a new ID. Follow it.
         moved_to = product_id_from_url(fields.get('canonical_url') or '')
         if len(rows) and moved_to and moved_to != pid:
@@ -65,7 +72,7 @@ def apply_results(catalogue, results, today=None):
                 'product_name': fields['product_name'],
                 'product_url': fields.get('canonical_url') or res['url'],
                 'product_type': res['product_type'],
-                'brand': fields.get('brand'),
+                'brand': fields.get('brand') or infer_brand(fields['product_name']),
                 'ingredients': _as_list_string(fields['ingredients']),
                 'ingredients_source': 'lookfantastic',
                 'price': fields.get('updated_price'),
@@ -95,5 +102,8 @@ def apply_results(catalogue, results, today=None):
             cat.loc[rows, 'ingredients_source'] = 'lookfantastic'
 
     out = pd.concat([cat, pd.DataFrame(new_rows)], ignore_index=True)
+    missing = out['brand'].isna()
+    out.loc[missing, 'brand'] = out.loc[missing, 'product_name'].map(lambda n: infer_brand(fix_mojibake(n)))
+    out['is_bundle'] = out['product_name'].map(is_bundle)
     out['price_change'] = pd.to_numeric(out['updated_price'], errors='coerce') - pd.to_numeric(out['price'], errors='coerce')
     return out[COLUMNS]

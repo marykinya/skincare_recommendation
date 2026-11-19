@@ -9,8 +9,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pipeline import run as pipeline_run  # noqa: E402
 from pipeline.checks import run_checks  # noqa: E402
 from pipeline.merge import COLUMNS, apply_results  # noqa: E402
-from pipeline.parse import (extract_product_links, page_count, parse_product_page,  # noqa: E402
-                            product_id_from_url, split_ingredients)
+from pipeline.brands import infer_brand  # noqa: E402
+from pipeline.parse import (clean_ingredient_list, extract_product_links, fix_mojibake, is_bundle,  # noqa: E402
+                            page_count, parse_product_page, product_id_from_url, split_ingredients)
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 BASE = 'https://www.lookfantastic.com'
@@ -72,6 +73,40 @@ def test_checks_flag_price_jumps():
     assert 'Prices did not jump' in warnings
 
 
+def test_split_ingredients_keeps_numbered_chemicals_whole():
+    assert split_ingredients('Aqua, 1,2-Hexanediol, Glycerin (Code: F.I.L B221814/1)') == ['aqua', '1,2-hexanediol', 'glycerin']
+
+
+def test_clean_ingredient_list_repairs_saved_data():
+    raw = ['1', '2-hexanediol', 'avã¨ne thermal spring water. dicaprylyl carbonate', 'aloe leaf extractâ³', 'ceramide â\xadnp']
+    assert clean_ingredient_list(raw) == ['1,2-hexanediol', 'avène thermal spring water', 'dicaprylyl carbonate',
+                                          'aloe leaf extract', 'ceramide np']
+
+
+def test_fix_mojibake():
+    assert fix_mojibake('EstÃ©e Lauder') == 'Estée Lauder'
+    assert fix_mojibake('Lâ€™OrÃ©al Paris') == 'L’Oréal Paris'
+    assert fix_mojibake('Crème') == 'Crème'
+
+
+def test_infer_brand():
+    assert infer_brand('Estée Lauder Advanced Night Repair 30ml') == 'Estée Lauder'
+    assert infer_brand('PIXI Glow Tonic 250ml') == 'PIXI Beauty'
+    assert infer_brand('Anua Heartleaf Pore Control Cleansing Oil') == 'Anua'
+    assert infer_brand('Some Unknown Brand Cream') is None
+
+
+def test_is_bundle():
+    assert is_bundle('The LOOKFANTASTIC Beauty Advent Calendar (Worth Over £665)')
+    assert is_bundle('Eve Lom Cleanser and Rescue Mask 100ml Duo')
+    assert is_bundle('SkinCeuticals Glass Skin Radiance Set')
+    assert not is_bundle('Weleda Skin Food Original 75ml Duo')
+    assert is_bundle('Anua Soothing Routine')
+    assert is_bundle('Dermalogica Radiance Duo')
+    assert not is_bundle('Rituals Homme Collection 24h Hydrating Face Cream 50ml')
+    assert not is_bundle('Sarah Chapman Skinesis Overnight Facial Oil 30ml (Worth £108.00)')
+
+
 # Merging
 
 def catalogue():
@@ -128,8 +163,17 @@ def test_merge_leaves_rows_alone_on_network_error():
     results = [{'product_id': '1', 'url': 'u1', 'product_type': 'Moisturiser', 'status': None, 'fields': {}}]
     before = catalogue()
     after = apply_results(before, results)
-    cols = [c for c in COLUMNS if c != 'price_change']
+    cols = [c for c in COLUMNS if c not in ('price_change', 'is_bundle')]
     pd.testing.assert_frame_equal(after[cols], before[cols], check_dtype=False)
+
+
+def test_merge_treats_redirect_to_category_as_discontinued():
+    gone = page(product_name='Lip Balms', canonical_url='https://www.lookfantastic.com/c/health-beauty/face/lip-balm/')
+    results = [{'product_id': '1', 'url': 'u1', 'product_type': 'Moisturiser', 'status': 200, 'fields': gone}]
+    out = apply_results(catalogue(), results)
+    row = out[out['product_id'] == '1'].iloc[0]
+    assert row['product_name'] == 'Cream 50ml'
+    assert row['available'] == False  # noqa: E712
 
 
 def test_merge_follows_products_that_moved_to_a_new_id():

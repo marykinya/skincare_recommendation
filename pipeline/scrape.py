@@ -39,6 +39,10 @@ class Fetcher:
                 log.warning('Attempt %s got %s for %s', attempt, resp.status_code, url)
                 time.sleep(2 ** attempt * 2)
                 continue
+            # Lookfantastic serves UTF-8 but does not always say so. Without this,
+            # "Estée" turns into "EstÃ©e".
+            if not resp.encoding or resp.encoding.lower() in ('iso-8859-1', 'latin-1'):
+                resp.encoding = 'utf-8'
             return resp.status_code, resp.text
         return None, ''
 
