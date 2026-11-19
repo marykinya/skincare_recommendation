@@ -1,121 +1,98 @@
-# Skincare Product Recommendation System
+# Skincare Product Recommender
 
-## Overview
+Find skincare products with a similar formula. Pick a product and the app shows up to five similar products of the same type. You can also look for cheaper alternatives or other brands.
 
-This project is an interactive **skincare product recommendation app** built with **Streamlit**. Given a product selected by the user, it surfaces up to five similar products from the same category using a weighted composite score based on ingredient overlap, price proximity, and customer rating.
+**Live app:** [mk-skincare-recommendation.streamlit.app](https://mk-skincare-recommendation.streamlit.app/)
 
-Data is scraped from **Lookfantastic** and stored in `skincare_products_2026.csv`.
+<!-- Add a screenshot or GIF of the app here, for example: ![App screenshot](docs/screenshot.png) -->
 
 ## Features
 
-- **Ingredient-based similarity** — TF-IDF vectorisation with position weighting gives more importance to ingredients listed earlier (higher concentration), then cosine similarity is computed across all products in the same type.
-- **Composite scoring** — The final score blends three signals:
-  - **75%** ingredient similarity
-  - **15%** price proximity (normalised to the price range of the filtered set)
-  - **10%** rating proximity (normalised to a 5-point scale)
-- **Availability filtering** — Only products where `available == True` are loaded.
-- **Same-type filtering** — Recommendations are drawn exclusively from the same `product_type` as the selected product (e.g., Moisturiser, Cleanser).
-- **Similarity threshold** — A product must reach a minimum ingredient similarity score of `0.1` to appear in results regardless of price or rating.
-- **Image validation** — Product image URLs are validated with the `validators` library; invalid or missing URLs fall back to a placeholder image.
-- **Responsive card layout** — Recommended products are rendered in a 3-column grid with product image, brand, name (linked to Lookfantastic), star rating, and price in GBP (£).
+- **Ingredient matching.** Products are compared on their full ingredient lists. Ingredients listed first carry more weight.
+- **Dupe finder.** Show only products that cost less than the one you picked.
+- **Other brands only.** Hide products from the same brand.
+- **Transparent results.** Each card shows its ingredient match, rating and price with a link to the product page.
 
-## Dataset
+## How it works
 
-**File:** `skincare_products_2026.csv`
+Every product is compared with all other products of the same type. Each candidate gets a score from three signals.
+
+| Signal | Weight | What it measures |
+|---|---|---|
+| Ingredient match | 75% | How similar the two formulas are |
+| Price | 15% | Similar price by default. In dupe mode a bigger saving scores higher. |
+| Rating | 10% | Higher rated products score a little higher |
+
+**Ingredient match.** Each full ingredient name is one token. "Sodium hyaluronate" is matched as a whole and is never split into separate words. Ingredient lists are ordered by concentration so the top five ingredients are repeated to give them more weight. TF-IDF then gives rare ingredients more weight than common ones like glycerin. Cosine similarity turns this into a score between 0 and 1.
+
+**Similarity threshold.** A product needs an ingredient match of at least 0.1 to appear. Price and rating cannot push an unrelated product into the results.
+
+**Missing ratings.** Products with no rating get the median rating for their product type.
+
+```
+score = 0.75 × ingredient match + 0.15 × price + 0.10 × rating
+```
+
+## Data
+
+The catalogue started from a [Kaggle](https://www.kaggle.com) dataset of [Lookfantastic](https://www.lookfantastic.com) skincare products from 2021. I refreshed it in 2026 by scraping each product page for current prices, ratings, images and availability. Brands were extracted from product names and fixed with a manual corrections file.
+
+| | |
+|---|---|
+| Products | 1,138 |
+| Available (shown in the app) | 1,032 |
+| Product types | 14 (Mask, Body Wash, Moisturiser, Cleanser, Serum and more) |
+| Average ingredients per product | 24 |
+
+**File:** `data/skincare_products_2026.csv`
 
 | Column | Description |
 |---|---|
 | `product_name` | Name of the product |
 | `product_url` | Link to the Lookfantastic product page |
-| `product_type` | Category (e.g., Moisturiser, Cleanser, Serum) |
-| `ingredients` | String-encoded list of ingredients in descending concentration order |
-| `price` | Original price (£) |
-| `updated_price` | Updated price (£); used as `display_price` when available |
-| `price_change` | Difference between original and updated price |
-| `product_rating` | Average customer rating (out of 5) |
-| `product_image_url` | URL to the product image |
+| `product_type` | Category such as Moisturiser, Cleanser or Serum |
+| `ingredients` | List of ingredients in order of concentration |
+| `price` | Price in the 2021 dataset (£) |
+| `updated_price` | Price at the 2026 refresh (£). Used in the app when available. |
+| `price_change` | Difference between the two prices |
+| `product_rating` | Average customer rating out of 5 |
+| `product_image_url` | Product image |
 | `brand` | Brand name |
-| `available` | Whether the product is currently available (`True`/`False`) |
+| `available` | Whether the product is still sold |
 
-## How It Works
-
-When you select a product, every other product of the same category is scored against your selection using a weighted combination of three signals. Here's a deep dive into each one.
-
-### 🧪 Ingredient Match (75%)
-
-This is the heart of the engine. Skincare products list their ingredients in **descending order of concentration** — the first ingredient makes up the largest share of the formula, the last the smallest. The recommender takes full advantage of this structure.
-
-**How it works:**
-- Each ingredient is assigned a **positional weight**: ingredients near the top of the list carry much more influence than those near the bottom.
-- The app then computes a **weighted cosine similarity** between two ingredient lists, meaning products that share the same key actives *and* the same base ingredients will score highly together.
-- Rare or specialty ingredients (e.g. niacinamide, retinol, peptides) that appear near the top are treated as strong signals of formulation intent and boost similarity more than common fillers like water or glycerin.
-
-**Why it matters:**
-Two moisturisers might both be called "hydrating" on their labels, but one might be built around hyaluronic acid while the other leans on shea butter. Ingredient matching surfaces the one that is chemically closest to what you already like.
-
-### 💰 Price (15%)
-
-Once ingredient similarity is established, price acts as a **tiebreaker and alternative-finder**.
-
-**How it works:**
-- The absolute price difference between your chosen product and every candidate is calculated and normalised across the full price range in the dataset.
-- A candidate that costs nearly the same scores close to 1.0 on this signal; one that is drastically cheaper or more expensive scores lower.
-- The 15% weight means price can meaningfully separate two otherwise identical formulas, but it cannot rescue a product with poor ingredient overlap.
-
-**Why it matters:**
-This signal powers the "dupe" use case. If you love a luxury serum but want a budget alternative, the recommender will surface the closest-matching formula at the lowest price difference — not just the cheapest product in the category.
-
-### ⭐ Rating (10%)
-
-A light quality signal drawn from aggregated customer reviews.
-
-**How it works:**
-- Ratings are normalised to a 0–1 scale across the dataset.
-- Products with a rating close to your chosen product's rating receive a small boost; a highly-rated recommendation is preferred over a poorly-rated one when everything else is equal.
-- The 10% weight keeps this signal advisory rather than dominant — a 5-star product with unrelated ingredients will never outrank a 3-star product with an almost identical formula.
-
-**Why it matters:**
-Real-world performance data from thousands of reviewers can catch things ingredient lists can't: texture, scent, packaging, and skin-feel. The rating nudge helps surface products that work well in practice, not just on paper.
-
-### 🔬 The Similarity Threshold
-
-Not every product makes it into your results. A candidate must clear a **minimum ingredient similarity score** to appear at all. This threshold filters out products that are categorically different in formulation, so price and rating alone can never surface an unrelated result.
-
-Products that pass the threshold are then ranked by their combined weighted score (ingredient × 0.75 + price × 0.15 + rating × 0.10) and the top matches are displayed.
-
-### 📊 About the Data
-
-- The product catalogue was initially sourced from a publicly available skincare dataset on [Kaggle](https://www.kaggle.com) and includes ingredients, prices, and ratings across moisturisers, serums, cleansers, sunscreens, toners, eye creams, and more.
-- The dataset has been periodically refreshed/scraped from [lookfantastic.com](https://www.lookfantastic.com) to reflect current product availability.
-
-## Project Structure
+## Project structure
 
 ```
-skincare-recommendation/
-├── recommender.py                    # Main Streamlit app and recommendation logic
-├── skincare_products_2026.csv        # Updated product dataset
-├── corrected_brands_dictionary.csv   # Brand name corrections used in the data pipeline
-├── skincare_products_2021.csv        # Historical dataset
-└── requirements.txt                  # Python dependencies
+skincare_recommendation/
+├── recommender.py                         # Streamlit app and recommendation logic
+├── requirements.txt                       # App dependencies
+├── data/
+│   ├── skincare_products_2026.csv         # Refreshed dataset used by the app
+│   ├── skincare_products_2021.csv         # Original Kaggle dataset
+│   └── corrected_brands_dictionary.csv    # Manual brand corrections
+├── notebooks/
+│   └── Skincare.ipynb                     # Data refresh: scraping, brand matching and cleaning
+└── tests/
+    └── test_recommender.py                # Tests for the scoring logic
 ```
 
-## Requirements
-
-```
-streamlit>=1.28.0
-pandas>=2.0.0
-scikit-learn>=1.3.0
-validators>=0.20.0
-```
-
-Install dependencies:
+## Run it locally
 
 ```bash
 pip install -r requirements.txt
-```
-
-## Running the App
-
-```bash
 streamlit run recommender.py
 ```
+
+## Run the tests
+
+```bash
+pip install pytest
+pytest
+```
+
+## Roadmap
+
+- Evaluate recommendation quality against known dupe pairs and a random baseline
+- Move the scraping steps from the notebook into a scheduled pipeline with data quality checks
+- Fill in the remaining missing brands
+- Let users tune the signal weights in the app
