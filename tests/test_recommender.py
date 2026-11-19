@@ -5,7 +5,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from recommender import parse_ingredients, position_weighted, recommend  # noqa: E402
+from recommender import base_name, parse_ingredients, position_weighted, recommend  # noqa: E402
 
 
 def make_df():
@@ -62,3 +62,20 @@ def test_cheaper_only_returns_cheaper_products():
 def test_exclude_same_brand():
     result = recommend(make_df(), 0, exclude_same_brand=True)
     assert 'A' not in result['brand'].tolist()
+
+
+def test_base_name_strips_sizes():
+    assert base_name('CeraVe Moisturising Cream 454g') == base_name('CeraVe Moisturising Cream 50ml')
+    assert base_name('Caudalie Supersize Grape Water (200ml)') == base_name('Caudalie Grape Water 75ml')
+
+
+def test_size_variants_are_not_recommended():
+    df = make_df()
+    df.loc[1, 'product_name'] = 'Base 200ml'
+    df.loc[0, 'product_name'] = 'Base 50ml'
+    df.loc[2, 'product_name'] = 'Cheap twin 30ml'
+    df = pd.concat([df, df.iloc[[2]].assign(product_name='Cheap twin 100ml', display_price=15.0)],
+                   ignore_index=True)
+    names = recommend(df, 0)['product_name'].tolist()
+    assert 'Base 200ml' not in names
+    assert sum(n.startswith('Cheap twin') for n in names) == 1

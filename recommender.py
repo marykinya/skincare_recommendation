@@ -1,5 +1,6 @@
 import ast
 import html
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -216,6 +217,25 @@ def position_weighted(ingredient_list, top_k=5):
     return tokens
 
 
+SIZE_PATTERN = re.compile(
+    r'\b\d+(?:[.,]\d+)?\s?(?:ml|g|kg|l|oz|fl\.? ?oz|pieces?|pads?|capsules?|sachets?|masks?|wipes?)\b'
+)
+PACK_WORDS = re.compile(
+    r'\b(supersize|travel size|exclusive|pump|tube|bottle|jar|duo pack|duo|worth £\d+|sleeved version)\b'
+)
+
+
+def base_name(product_name):
+    """Strip sizes and pack words so size variants of one product share a name."""
+    s = str(product_name).lower()
+    s = re.sub(r'\(.*?\)', '', s)
+    s = SIZE_PATTERN.sub('', s)
+    s = re.sub(r'\b(x|-)\s*\d+\b', '', s)
+    s = PACK_WORDS.sub('', s)
+    s = re.sub(r'[^a-z0-9+ ]', ' ', s)
+    return ' '.join(s.split())
+
+
 def _identity(tokens):
     # Each full ingredient name is one token, so "sodium hyaluronate" is never split.
     return tokens
@@ -270,8 +290,10 @@ def recommend(df, product_index, top_n=5, similarity_threshold=0.1,
               + weights['price'] * price_score.values
               + weights['rating'] * rating_score.values)
 
+    # Never recommend the selected product or another size of it
+    bases = df['product_name'].map(base_name)
     mask = ingr_sim >= similarity_threshold
-    mask[product_index] = False
+    mask &= (bases != bases.iloc[product_index]).values
     if cheaper_only and pd.notnull(sel_price):
         mask &= (prices < sel_price).values
     if exclude_same_brand:
@@ -280,8 +302,10 @@ def recommend(df, product_index, top_n=5, similarity_threshold=0.1,
             mask &= (df['brand'].fillna('').str.lower() != str(brand).lower()).values
 
     return (df[mask]
-            .assign(ingredient_match=ingr_sim[mask], score=scores[mask])
+            .assign(ingredient_match=ingr_sim[mask], score=scores[mask], _base=bases[mask])
             .sort_values('score', ascending=False)
+            .drop_duplicates('_base')  # show each product once, at its best scoring size
+            .drop(columns='_base')
             .head(top_n))
 
 # UI components
@@ -329,6 +353,7 @@ to see other brands only.
 Score = 0.75 × ingredient match + 0.15 × price + 0.10 × rating
 
 The top five products are shown. Each card shows its ingredient match.
+Other sizes of the product you picked are hidden and each product appears once.
 
 ### About the data
 

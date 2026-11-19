@@ -12,6 +12,7 @@ Find skincare products with a similar formula. Pick a product and the app shows 
 - **Dupe finder.** Show only products that cost less than the one you picked.
 - **Other brands only.** Hide products from the same brand.
 - **Transparent results.** Each card shows its ingredient match, rating and price with a link to the product page.
+- **One listing per product.** Other sizes of the product you picked are hidden. Each result appears once.
 
 ## How it works
 
@@ -29,9 +30,32 @@ Every product is compared with all other products of the same type. Each candida
 
 **Missing ratings.** Products with no rating get the median rating for their product type.
 
+**Size variants.** Many products are listed in more than one size. Sizes are matched by name so the same product never fills more than one slot.
+
 ```
 score = 0.75 × ingredient match + 0.15 × price + 0.10 × rating
 ```
+
+## Evaluation
+
+The full analysis is in [`notebooks/evaluation.ipynb`](notebooks/evaluation.ipynb). It tests the model three ways against a random baseline.
+
+**1. Size variants.** A product sold in two sizes has the same formula. The model finds the other size as its top match for 94% of products. Random picks would manage 2%.
+
+![Size variant retrieval](docs/evaluation_size_variants.png)
+
+**2. Published dupes.** Five pairs from beauty editors and dupe finder sites exist in this catalogue. The known alternative has a median rank of 7 out of 98 products. Random picks would give 50. Four of the five are in the top 10% of their category.
+
+**3. Catalogue behaviour.**
+
+| Check | Result |
+|---|---|
+| Products with at least one cheaper alternative | 89% |
+| Median saving in dupe mode | 48% |
+| Results that are another size of the same product | 0% (was 2.5%) |
+| Results from the same brand | 22% (3.8% if random) |
+
+Same-brand results are common because brands reuse base formulas across their ranges. The "Exclude the same brand" toggle covers this.
 
 ## Data
 
@@ -70,8 +94,11 @@ skincare_recommendation/
 │   ├── skincare_products_2026.csv         # Refreshed dataset used by the app
 │   ├── skincare_products_2021.csv         # Original Kaggle dataset
 │   └── corrected_brands_dictionary.csv    # Manual brand corrections
+├── docs/
+│   └── evaluation_size_variants.png       # Chart used in this README
 ├── notebooks/
-│   └── Skincare.ipynb                     # Data refresh: scraping, brand matching and cleaning
+│   ├── Skincare.ipynb                     # Data refresh: scraping, brand matching and cleaning
+│   └── evaluation.ipynb                   # Model evaluation against baselines and published dupes
 └── tests/
     └── test_recommender.py                # Tests for the scoring logic
 ```
@@ -92,7 +119,8 @@ pytest
 
 ## Roadmap
 
-- Evaluate recommendation quality against known dupe pairs and a random baseline
+- Group related ingredients such as hyaluronic acid and sodium hyaluronate so products that do the same job can match
+- Refresh the catalogue to current products so more published dupe pairs can be tested
 - Move the scraping steps from the notebook into a scheduled pipeline with data quality checks
 - Fill in the remaining missing brands
 - Let users tune the signal weights in the app
