@@ -7,6 +7,8 @@ import pandas as pd
 import streamlit as st
 import validators
 
+from ingredients import ingredient_tokens
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -172,7 +174,7 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 # Data
-DATA_PATH = Path(__file__).parent / 'data' / 'skincare_products_2026.csv'
+DATA_PATH = Path(__file__).parent / 'data' / 'skincare_products.csv'
 
 
 def parse_ingredients(value):
@@ -205,18 +207,6 @@ def validate_image_url(url):
     return url if validators.url(str(url)) else PLACEHOLDER_IMAGE_URL
 
 
-def position_weighted(ingredient_list, top_k=5):
-    """Repeat ingredients so the ones listed first count more.
-
-    Rank 1 is repeated 5 times, rank 2 four times and so on.
-    From rank 5 onwards each ingredient counts once.
-    """
-    tokens = []
-    for rank, ingr in enumerate(ingredient_list, start=1):
-        tokens.extend([ingr] * max(1, top_k + 1 - rank))
-    return tokens
-
-
 SIZE_PATTERN = re.compile(
     r'\b\d+(?:[.,]\d+)?\s?(?:ml|g|kg|l|oz|fl\.? ?oz|pieces?|pads?|capsules?|sachets?|masks?|wipes?)\b'
 )
@@ -245,9 +235,9 @@ def _identity(tokens):
 WEIGHTS = {'ingredients': 0.75, 'price': 0.15, 'rating': 0.10}
 
 
-def ingredient_similarity(df, product_index):
+def ingredient_similarity(df, product_index, use_families=True):
     vectors = TfidfVectorizer(analyzer=_identity).fit_transform(
-        df['ingredients'].apply(position_weighted)
+        df['ingredients'].apply(ingredient_tokens, use_families=use_families)
     )
     return cosine_similarity(vectors[product_index], vectors).flatten()
 
@@ -327,6 +317,12 @@ biggest share of the formula.
 - TF-IDF gives rare ingredients more weight than common ones like glycerin. Sharing a
   rare active says more about two products than sharing a common base.
 - Cosine similarity then turns this into a match score between 0 and 1.
+- Water is ignored because nearly every product has it.
+
+**Ingredient families.** Related ingredients get partial credit. Sodium hyaluronate and
+hyaluronic acid both count as hyaluronic acid, for example. There are fourteen families
+including vitamin C, retinoids, ceramides, peptides, AHAs and BHAs. Exact matches still
+score highest.
 
 A product needs a match score of at least 0.1 to appear at all. Price and rating
 cannot push an unrelated product into the results.
@@ -357,9 +353,10 @@ Other sizes of the product you picked are hidden and each product appears once.
 
 ### About the data
 
-The catalogue started from a Kaggle dataset of Lookfantastic skincare products. It
-was refreshed in 2026 by scraping Lookfantastic for current prices, ratings, images
-and availability. Discontinued products are hidden.
+The catalogue started from a Kaggle dataset of Lookfantastic skincare products. A data
+pipeline now refreshes it from Lookfantastic every week. It updates prices, ratings,
+images, availability and ingredient lists and adds new products. Discontinued products
+are hidden.
 """
 
 

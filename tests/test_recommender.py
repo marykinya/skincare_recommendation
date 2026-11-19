@@ -5,7 +5,8 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from recommender import base_name, parse_ingredients, position_weighted, recommend  # noqa: E402
+from ingredients import ingredient_family, ingredient_tokens, normalise_ingredient  # noqa: E402
+from recommender import base_name, parse_ingredients, recommend  # noqa: E402
 
 
 def make_df():
@@ -29,10 +30,38 @@ def test_parse_ingredients_keeps_full_names():
 
 
 def test_position_weighting_favours_top_ingredients():
-    tokens = position_weighted(['a', 'b', 'c', 'd', 'e', 'f'])
+    tokens = ingredient_tokens(['a', 'b', 'c', 'd', 'e', 'f'], use_families=False)
     assert tokens.count('a') == 5
     assert tokens.count('b') == 4
     assert tokens.count('f') == 1
+
+
+def test_water_is_dropped_and_ranks_start_after_it():
+    tokens = ingredient_tokens(['Aqua/Water', 'Glycerine', 'niacinamide'], use_families=False)
+    assert 'aqua/water' not in tokens
+    assert tokens.count('glycerin') == 5
+
+
+def test_families_group_related_ingredients():
+    assert ingredient_family('sodium hyaluronate') == ingredient_family('hyaluronic acid') == 'hyaluronic acid'
+    assert ingredient_family('tocopheryl acetate') == 'vitamin e'
+    assert ingredient_family('citric acid') is None
+    assert ingredient_family('ethylhexyl salicylate') is None
+    assert normalise_ingredient('Aqua (Water)') == ''
+    assert normalise_ingredient('Glycerine*') == 'glycerin'
+
+
+def test_families_give_partial_credit():
+    df = pd.DataFrame({
+        'product_name': ['x', 'related', 'unrelated'],
+        'brand': ['A', 'B', 'C'],
+        'ingredients': [['sodium hyaluronate', 'glycerin'], ['hyaluronic acid', 'butylene glycol'], ['shea butter', 'cocoa butter']],
+        'display_price': [10.0, 10.0, 10.0],
+        'product_rating': [4.0, 4.0, 4.0],
+    })
+    from recommender import ingredient_similarity
+    assert ingredient_similarity(df, 0, use_families=False)[1] == 0
+    assert ingredient_similarity(df, 0, use_families=True)[1] > 0
 
 
 def test_multi_word_ingredients_are_not_split():
