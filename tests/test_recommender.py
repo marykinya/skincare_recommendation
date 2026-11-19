@@ -108,3 +108,17 @@ def test_size_variants_are_not_recommended():
     names = recommend(df, 0)['product_name'].tolist()
     assert 'Base 200ml' not in names
     assert sum(n.startswith('Cheap twin') for n in names) == 1
+
+
+def test_same_brand_identical_formula_counts_as_another_size():
+    df = pd.DataFrame({
+        'product_name': ['Cream Tube 50ml', 'Cream Pot with Ceramides 454g', 'Other Brand Cream', 'Lotion'],
+        'brand': ['A', 'A', 'B', 'A'],
+        'ingredients': [['glycerin', 'ceramide np', 'cetearyl alcohol']] * 3 + [['glycerin', 'ceramide np', 'squalane']],
+        'display_price': [7.0, 15.5, 9.0, 12.0],
+        'product_rating': [4.6, 4.7, 4.1, 4.2],
+    })
+    names = recommend(df, 0)['product_name'].tolist()
+    assert 'Cream Pot with Ceramides 454g' not in names  # same brand, same formula
+    assert 'Other Brand Cream' in names                  # same formula, other brand: a dupe
+    assert 'Lotion' in names

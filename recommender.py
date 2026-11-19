@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 import validators
 
-from ingredients import ingredient_tokens
+from ingredients import ingredient_tokens, normalise_ingredient
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -230,6 +230,13 @@ def base_name(product_name):
     return ' '.join(s.split())
 
 
+def formula_keys(df):
+    """Brand plus the cleaned ingredient list. Equal keys mean the same product in another size."""
+    brands = df['brand'].fillna('').astype(str).str.lower().str.strip()
+    lists = df['ingredients'].map(lambda ingr: '|'.join(n for n in map(normalise_ingredient, ingr) if n))
+    return brands + '#' + lists
+
+
 def _identity(tokens):
     # Each full ingredient name is one token, so "sodium hyaluronate" is never split.
     return tokens
@@ -296,10 +303,14 @@ def recommend(df, product_index, top_n=5, similarity_threshold=0.1,
               + weights['price'] * price_score.values
               + weights['rating'] * rating_score.values)
 
-    # Never recommend the selected product or another size of it
+    # Never recommend the selected product or another size of it. Sizes are spotted two
+    # ways: the same name once sizes are removed, or the same brand with an identical
+    # ingredient list. Identical lists from different brands are kept: those are dupes.
     bases = df['product_name'].map(base_name)
+    formulas = formula_keys(df)
     mask = ingr_sim >= similarity_threshold
     mask &= (bases != bases.iloc[product_index]).values
+    mask &= (formulas != formulas.iloc[product_index]).values
     if cheaper_only and pd.notnull(sel_price):
         mask &= (prices < sel_price).values
     if exclude_same_brand:
@@ -308,10 +319,12 @@ def recommend(df, product_index, top_n=5, similarity_threshold=0.1,
             mask &= (df['brand'].fillna('').str.lower() != str(brand).lower()).values
 
     return (df[mask]
-            .assign(ingredient_match=ingr_sim[mask], score=scores[mask], _base=bases[mask])
+            .assign(ingredient_match=ingr_sim[mask], score=scores[mask],
+                    _base=bases[mask], _formula=formulas[mask])
             .sort_values('score', ascending=False)
             .drop_duplicates('_base')  # show each product once, at its best scoring size
-            .drop(columns='_base')
+            .drop_duplicates('_formula')
+            .drop(columns=['_base', '_formula'])
             .head(top_n))
 
 # UI components

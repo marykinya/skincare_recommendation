@@ -4,7 +4,7 @@ Find skincare products with a similar formula. Pick a product and the app shows 
 
 **Live app:** [mk-skincare-recommendation.streamlit.app](https://mk-skincare-recommendation.streamlit.app/)
 
-<!-- Add a screenshot or GIF of the app here, for example: ![App screenshot](docs/screenshot.png) -->
+![The app showing products similar to CeraVe Moisturising Cream](docs/screenshot.png)
 
 The project has three parts:
 
@@ -43,7 +43,7 @@ score = 0.75 × ingredient match + 0.15 × price + 0.10 × rating
 
 **Missing ratings.** Products with no rating get the median rating for their product type.
 
-**Size variants.** Many products are listed in more than one size. Sizes are matched by name so the same product never fills more than one slot.
+**Size variants.** Many products are listed in more than one size. A product counts as another size when its name matches once sizes are removed, or when it has the same brand and an identical ingredient list. The same product never fills more than one slot. Identical lists from different brands are kept because those are true dupes.
 
 ## Evaluation
 
